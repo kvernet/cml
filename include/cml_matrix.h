@@ -53,6 +53,8 @@ extern "C"
 
     cml_matrix *cml_matrix_alloc(const lgint m, const lgint n);
 
+    cml_matrix *cml_matrix_dif(cml_matrix *const a, cml_matrix *const b);
+
     cml_matrix *cml_matrix_eye(const lgint n);
 
     cml_matrix *cml_matrix_solve(cml_matrix *const a, cml_matrix *const b);

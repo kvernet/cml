@@ -55,6 +55,34 @@ cml_matrix *cml_matrix_alloc(const lgint m, const lgint n)
     return matrix_create(m, n, &malloc);
 }
 
+cml_matrix *cml_matrix_dif(cml_matrix *const a, cml_matrix *const b)
+{
+    if (a == NULL)
+    {
+        fprintf(stderr, "error (cml_matrix_dif): the matrix A is null in A-B.\n");
+        return NULL;
+    }
+    if (b == NULL)
+    {
+        fprintf(stderr, "error (cml_matrix_dif): the matrix B is null in A-B.\n");
+        return NULL;
+    }
+    if (a->m != b->m || a->n != b->n)
+    {
+        fprintf(stderr, "error (cml_matrix_dif): the matrices should be of same dimension in A-B.\n");
+        return NULL;
+    }
+    cml_matrix *d = cml_matrix_alloc(a->m, a->n);
+    for (lgint i = 0; i < d->m; i++)
+    {
+        for (lgint j = 0; j < d->n; j++)
+        {
+            d->set(&d, i, j, a->get(a, i, j) - b->get(b, i, j));
+        }
+    }
+    return d;
+}
+
 cml_matrix *cml_matrix_eye(const lgint n)
 {
     cml_matrix *a = cml_matrix_zeros(n, n);
