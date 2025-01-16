@@ -22,6 +22,8 @@ extern "C"
 
     typedef fdouble cml_matrix_get(cml_matrix *const a, const lgint i, const lgint j);
 
+    typedef cml_matrix *cml_matrix_hadamard(cml_matrix *const a, cml_matrix *const b);
+
     typedef cml_matrix *cml_matrix_inv(cml_matrix *const a);
 
     typedef void cml_matrix_lu(cml_matrix *const a, cml_matrix **p, cml_matrix **l, cml_matrix **u);
@@ -43,6 +45,7 @@ extern "C"
         cml_matrix_det *det;
         cml_matrix_free *free;
         cml_matrix_get *get;
+        cml_matrix_hadamard *hadamard;
         cml_matrix_inv *inv;
         cml_matrix_lu *lu;
         cml_matrix_print *print;

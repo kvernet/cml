@@ -10,7 +10,7 @@ all: lib$(LIB_NAME).so
 
 LAYER_EXAMPLES  = new
 MATRIX_EXAMPLES = alloc det eye inv lu prod solve sum trace transpose zeros
-SEQUENTIAL_EXAMPLES = create reg
+SEQUENTIAL_EXAMPLES = and create or xor
 EXAMPLE_SRCS = $(LAYER_EXAMPLES) $(MATRIX_EXAMPLES) $(SEQUENTIAL_EXAMPLES)
 
 examples: $(EXAMPLE_SRCS)

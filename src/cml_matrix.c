@@ -21,6 +21,7 @@ static cml_matrix *matrix_copy(cml_matrix *const a);
 static fdouble matrix_det(cml_matrix *const a);
 static void matrix_free(cml_matrix **a);
 static fdouble matrix_get(cml_matrix *const a, const lgint i, const lgint j);
+static cml_matrix *matrix_hadamard(cml_matrix *const a, cml_matrix *const b);
 static cml_matrix *matrix_inv(cml_matrix *const a);
 static void matrix_lu(cml_matrix *const a, cml_matrix **p, cml_matrix **l, cml_matrix **u);
 static void matrix_print(cml_matrix *const a);
@@ -40,6 +41,7 @@ cml_matrix *matrix_create(const lgint m, const lgint n, void *(*alloc)(size_t))
     mat->pub.det = &matrix_det;
     mat->pub.free = &matrix_free;
     mat->pub.get = &matrix_get;
+    mat->pub.hadamard = &matrix_hadamard;
     mat->pub.inv = &matrix_inv;
     mat->pub.lu = &matrix_lu;
     mat->pub.print = &matrix_print;
@@ -245,8 +247,34 @@ fdouble matrix_get(cml_matrix *const a, const lgint i, const lgint j)
 {
     if (a == NULL)
         return DBL_MAX;
+    if (a->m <= i || a->n <= j)
+    {
+        fprintf(stderr, "Error (matrix_get): the index (%ld, %ld) is outside of the matrix dimension (%ld, %ld)\n", i, j, a->m, a->n);
+        return DBL_MAX;
+    }
     struct matrix *mat = (struct matrix *)a;
     return mat->data[i * a->n + j];
+}
+
+cml_matrix *matrix_hadamard(cml_matrix *const a, cml_matrix *const b)
+{
+    if (a->m != b->m || a->n != b->n)
+    {
+        fprintf(stderr, "Error (matrix_hadamard): the matrices are not element-wise product.\n");
+        return NULL;
+    }
+    cml_matrix *prod = cml_matrix_alloc(a->m, a->n);
+    for (lgint i = 0; i < a->m; i++)
+    {
+        for (lgint j = 0; j < a->n; j++)
+        {
+            prod->set(
+                &prod,
+                i, j,
+                a->get(a, i, j) * b->get(b, i, j));
+        }
+    }
+    return prod;
 }
 
 static lgint matrix_get_pivot(cml_matrix *const a, const lgint i)

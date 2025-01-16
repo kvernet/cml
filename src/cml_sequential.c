@@ -58,6 +58,113 @@ void sequential_compile(cml_sequential *const model)
     sequential->is_compiled = true;
 }
 
+static void sequential_forward(cml_sequential *const model, cml_matrix *const x, cml_matrix **inputs)
+{
+    for (lgint n = 0; n < model->n_layers; n++)
+    {
+        cml_layer *layer = model->layers[n];
+        if (n == 0)
+            inputs[n] = layer->eval(layer, x);
+        else
+            inputs[n] = layer->eval(layer, inputs[n - 1]);
+    }
+}
+
+static cml_matrix *gradient_bias(cml_matrix *const err, const lgint m)
+{
+    cml_matrix *gradB = cml_matrix_alloc(err->n, 1);
+    for (lgint i = 0; i < gradB->m; i++)
+    {
+        fdouble s = 0.;
+        for (lgint j = 0; j < err->m; j++)
+        {
+            s += err->get(err, j, i);
+        }
+        gradB->set(&gradB, i, 0, s / m);
+    }
+    return gradB;
+}
+
+static cml_matrix *gradient_weight(cml_matrix *const input, cml_matrix *const err, const lgint m)
+{
+    cml_matrix *input_transpose = NULL;
+    input->transpose(input, &input_transpose);
+    cml_matrix *gradW = cml_matrix_alloc(input_transpose->m, err->n);
+    for (lgint i = 0; i < gradW->m; i++)
+    {
+        for (lgint j = 0; j < gradW->n; j++)
+        {
+            fdouble s = 0.;
+            for (lgint k = 0; k < input_transpose->n; k++)
+            {
+                s += input_transpose->get(input_transpose, i, k) * err->get(err, k, j);
+            }
+            gradW->set(&gradW, i, j, s / m);
+        }
+    }
+    input_transpose->free(&input_transpose);
+    return gradW;
+}
+
+static void update_weight_bias(cml_matrix **weight, cml_matrix **bias, cml_matrix *const gradW, cml_matrix *const gradB, const fdouble alpha)
+{
+    for (lgint j = 0; j < (*weight)->n; j++)
+    {
+        for (lgint i = 0; i < (*weight)->m; i++)
+        {
+            (*weight)->set(
+                weight,
+                i, j,
+                (*weight)->get(*weight, i, j) - alpha * gradW->get(gradW, i, j));
+        }
+        (*bias)->set(
+            bias,
+            j, 0,
+            (*bias)->get(*bias, j, 0) - alpha * gradB->get(gradB, j, 0));
+    }
+}
+
+static void sequential_backward(cml_sequential *const model, cml_matrix *const x, cml_matrix **inputs, cml_matrix *const y, const fdouble alpha)
+{
+    cml_matrix *err = cml_matrix_dif(inputs[model->n_layers - 1], y);
+    const lgint m = x->m;
+
+    for (long n = model->n_layers - 2; n >= 0; n--)
+    {
+        cml_matrix *input = inputs[n];
+
+        cml_layer *layer = model->layers[n + 1];
+        cml_matrix *W = layer->weight(layer);
+        cml_matrix *b = layer->bias(layer);
+
+        cml_matrix *gradW = gradient_weight(input, err, m);
+        cml_matrix *gradB = gradient_bias(err, m);
+
+        update_weight_bias(&W, &b, gradW, gradB, alpha);
+
+        gradW->free(&gradW);
+        gradB->free(&gradB);
+
+        cml_matrix *WT = NULL;
+        W->transpose(W, &WT);
+        cml_matrix *prod = cml_matrix_prod(err, WT);
+        err->free(&err);
+        WT->free(&WT);
+        layer = model->layers[n];
+        cml_matrix *zp = NULL;
+        if (n > 0)
+            zp = layer->gradient(layer, inputs[n - 1]);
+        else
+            zp = layer->gradient(layer, x);
+
+        err = prod->hadamard(prod, zp);
+        zp->free(&zp);
+        prod->free(&prod);
+    }
+
+    err->free(&err);
+}
+
 static fdouble sequential_mse(cml_sequential *const model, cml_matrix *const x, cml_matrix *const y)
 {
     if (model == NULL)
@@ -85,80 +192,6 @@ static fdouble sequential_mse(cml_sequential *const model, cml_matrix *const x, 
     return mse;
 }
 
-void sequential_update_weight(cml_sequential *const model, cml_matrix *const x, cml_matrix *const y, const fdouble alpha)
-{
-    cml_matrix *tmp_weight[model->n_layers];
-    cml_matrix *tmp_bias[model->n_layers];
-
-    for (lgint n = 0; n < model->n_layers; n++)
-    {
-        cml_layer *layer = model->layers[n];
-        cml_matrix *weight = layer->weight(layer);
-        cml_matrix *bias = layer->bias(layer);
-
-        // gradient w.r.t weight
-        tmp_weight[n] = weight->copy(weight);
-        for (lgint i = 0; i < weight->m; i++)
-        {
-            for (lgint j = 0; j < weight->n; j++)
-            {
-                const fdouble wij = weight->get(weight, i, j);
-                weight->set(&weight, i, j, wij - CML_EPSILON);
-                fdouble y1 = sequential_mse(model, x, y);
-                weight->set(&weight, i, j, wij + CML_EPSILON);
-                fdouble y2 = sequential_mse(model, x, y);
-                const fdouble grad = 0.5 * (y2 - y1) / CML_EPSILON;
-                tmp_weight[n]->set(&tmp_weight[n], i, j, grad);
-                // reset weight for future computation
-                weight->set(&weight, i, j, wij);
-            }
-        }
-        // gradient w.r.t bias
-        tmp_bias[n] = bias->copy(bias);
-        for (lgint i = 0; i < bias->m; i++)
-        {
-            for (lgint j = 0; j < bias->n; j++)
-            {
-                const fdouble bij = bias->get(bias, i, j);
-                bias->set(&bias, i, j, bij - CML_EPSILON);
-                fdouble y1 = sequential_mse(model, x, y);
-                bias->set(&bias, i, j, bij + CML_EPSILON);
-                fdouble y2 = sequential_mse(model, x, y);
-                tmp_bias[n]->set(&tmp_bias[n], i, j, 0.5 * (y2 - y1) / CML_EPSILON);
-                // reset bias for future computation
-                bias->set(&bias, i, j, bij);
-            }
-        }
-    }
-
-    // simulaneously update the weight and bias
-    for (lgint n = 0; n < model->n_layers; n++)
-    {
-        cml_layer *layer = model->layers[n];
-        cml_matrix *weight = layer->weight(layer);
-        cml_matrix *bias = layer->bias(layer);
-
-        for (lgint i = 0; i < tmp_weight[n]->m; i++)
-        {
-            for (lgint j = 0; j < tmp_weight[n]->n; j++)
-            {
-                weight->set(&weight, i, j, weight->get(weight, i, j) - alpha * tmp_weight[n]->get(tmp_weight[n], i, j));
-            }
-        }
-
-        for (lgint i = 0; i < tmp_bias[n]->m; i++)
-        {
-            for (lgint j = 0; j < tmp_bias[n]->n; j++)
-            {
-                bias->set(&bias, i, j, bias->get(bias, i, j) - alpha * tmp_bias[n]->get(tmp_bias[n], i, j));
-            }
-        }
-
-        tmp_weight[n]->free(&tmp_weight[n]);
-        tmp_bias[n]->free(&tmp_bias[n]);
-    }
-}
-
 void sequential_fit(cml_sequential *const model, cml_matrix *const x, cml_matrix *const y, const fdouble alpha, const lgint epochs)
 {
     if (model == NULL || x == NULL || y == NULL)
@@ -169,11 +202,33 @@ void sequential_fit(cml_sequential *const model, cml_matrix *const x, cml_matrix
         fprintf(stderr, "Error (sequential_fit): the model should be compiled first.\n");
         return;
     }
+    if (x == NULL)
+    {
+        fprintf(stderr, "Error (sequential_fit): the input [x] is null\n");
+        return;
+    }
+    if (y == NULL)
+    {
+        fprintf(stderr, "Error (sequential_fit): the output [y] is null\n");
+        return;
+    }
+
     for (lgint e = 0; e < epochs; e++)
     {
-        sequential_update_weight(model, x, y, alpha);
-        fdouble mse = sequential_mse(model, x, y);
-        fprintf(stderr, "epoch\t%ld\t\tmse\t\t%lg\n", e + 1, mse);
+        // feed forward
+        cml_matrix *inputs[model->n_layers];
+        sequential_forward(model, x, inputs);
+
+        // backward
+        sequential_backward(model, x, inputs, y, alpha);
+
+        for (lgint n = 0; n < model->n_layers; n++)
+        {
+            inputs[n]->free(&inputs[n]);
+        }
+
+        const fdouble mse = sequential_mse(model, x, y);
+        printf("epoch\t%ld\tmse %lg\n", e + 1, mse);
     }
 }
 
