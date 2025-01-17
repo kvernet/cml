@@ -1,12 +1,12 @@
 #include "cml_sequential.h"
+#include "cml_prng.h"
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 
 int main(void)
 {
-    srand(time(0));
+    cml_prng *prng = cml_prng_init(NULL);
 
     cml_matrix *x = cml_matrix_alloc(4, 2);
     x->set(&x, 0, 0, 0);
@@ -25,11 +25,13 @@ int main(void)
     y->set(&y, 3, 0, 1);
 
     cml_layer *layers[] = {
+        cml_layer_create(17, RELU),
+        cml_layer_create(9, RELU),
         cml_layer_create(3, RELU),
         cml_layer_create(1, SIGMOID)};
     const lgint n_layers = sizeof(layers) / sizeof(layers[0]);;
     cml_sequential *model = cml_sequential_create(layers, n_layers, x->n);
-    model->compile(model);
+    model->compile(model, prng);
     model->summary(model);
 
     const fdouble alpha = 0.001;
@@ -46,6 +48,7 @@ int main(void)
     x->free(&x);
     y->free(&y);
     model->free(&model);
+    prng->free(&prng);
 
     return EXIT_SUCCESS;
 }

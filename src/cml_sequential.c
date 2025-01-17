@@ -1,6 +1,7 @@
 #include "cml_sequential.h"
 
 #include <float.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,7 +17,7 @@ struct sequential
     bool is_compiled;
 };
 
-static void sequential_compile(cml_sequential *const model);
+static void sequential_compile(cml_sequential *const model, cml_prng *const prng);
 static void sequential_fit(cml_sequential *const model, cml_matrix *const x, cml_matrix *const y, const fdouble alpha, const lgint epochs);
 static void sequential_free(cml_sequential **model);
 static cml_matrix *sequential_predict(cml_sequential *const model, cml_matrix *const x);
@@ -42,7 +43,7 @@ cml_sequential *cml_sequential_create(cml_layer *layers[], const lgint n_layers,
     return &model->pub;
 }
 
-void sequential_compile(cml_sequential *const model)
+void sequential_compile(cml_sequential *const model, cml_prng *const prng)
 {
     if (model == NULL)
         return;
@@ -50,9 +51,9 @@ void sequential_compile(cml_sequential *const model)
     {
         cml_layer *layer = model->layers[i];
         if (i == 0)
-            layer->compile(layer, model->n_inputs);
+            layer->compile(layer, model->n_inputs, prng);
         else
-            layer->compile(layer, model->layers[i - 1]->weight(model->layers[i - 1])->n);
+            layer->compile(layer, model->layers[i - 1]->weight(model->layers[i - 1])->n, prng);
     }
     struct sequential *sequential = (struct sequential *)model;
     sequential->is_compiled = true;
@@ -228,7 +229,7 @@ void sequential_fit(cml_sequential *const model, cml_matrix *const x, cml_matrix
         }
 
         const fdouble mse = sequential_mse(model, x, y);
-        printf("epoch\t%ld\tmse %lg\n", e + 1, mse);
+        printf("epoch\t%ld/%ld\tmse %lg\n", e + 1, epochs, mse);
     }
 }
 

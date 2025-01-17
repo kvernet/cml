@@ -3,15 +3,16 @@ CFLAGS   = -O2 -fPIC -Wall -Werror -Wextra
 LDFLAGS  = -shared
 
 LIB_NAME = cml
-LIB_SRCS = src/cml_layer.c src/cml_matrix.c src/cml_sequential.c
+LIB_SRCS = src/cml_layer.c src/cml_matrix.c src/cml_prng.c src/cml_sequential.c
 LIB_OBJS = $(LIB_SRCS:.c=.o)
 
 all: lib$(LIB_NAME).so
 
 LAYER_EXAMPLES  = new
 MATRIX_EXAMPLES = alloc det eye inv lu prod solve sum trace transpose zeros
-SEQUENTIAL_EXAMPLES = and create or xor
-EXAMPLE_SRCS = $(LAYER_EXAMPLES) $(MATRIX_EXAMPLES) $(SEQUENTIAL_EXAMPLES)
+PRNG_EXAMPLES = init normal uniform
+SEQUENTIAL_EXAMPLES = and create iris or xor
+EXAMPLE_SRCS = $(LAYER_EXAMPLES) $(MATRIX_EXAMPLES) $(PRNG_EXAMPLES) $(SEQUENTIAL_EXAMPLES)
 
 examples: $(EXAMPLE_SRCS)
 
@@ -24,6 +25,9 @@ $(LAYER_EXAMPLES): lib$(LIB_NAME).so | bin_examples
 
 $(MATRIX_EXAMPLES): lib$(LIB_NAME).so | bin_examples
 	$(call build_example,matrix,$@)
+
+$(PRNG_EXAMPLES): lib$(LIB_NAME).so | bin_examples
+	$(call build_example,prng,$@)
 
 $(SEQUENTIAL_EXAMPLES): lib$(LIB_NAME).so | bin_examples
 	$(call build_example,sequential,$@)

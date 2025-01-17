@@ -2,6 +2,7 @@
 #define cml_layer_h
 
 #include "cml_matrix.h"
+#include "cml_prng.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -22,7 +23,7 @@ extern "C"
 
     typedef cml_matrix *cml_layer_bias(cml_layer *const layer);
 
-    typedef void cml_layer_compile(cml_layer *const layer, const lgint n_inputs);
+    typedef void cml_layer_compile(cml_layer *const layer, const lgint n_inputs, cml_prng *const prng);
 
     typedef cml_matrix *cml_layer_eval(cml_layer *const layer, cml_matrix *const x);
 

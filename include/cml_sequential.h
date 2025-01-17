@@ -3,6 +3,7 @@
 
 #include "cml_layer.h"
 #include "cml_matrix.h"
+#include "cml_prng.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -11,7 +12,7 @@ extern "C"
 
     typedef struct cml_sequential cml_sequential;
 
-    typedef void cml_sequential_compile(cml_sequential *const model);
+    typedef void cml_sequential_compile(cml_sequential *const model, cml_prng *const prng);
 
     typedef void cml_sequential_fit(cml_sequential *const model, cml_matrix *const x, cml_matrix *const y, const fdouble alpha, const lgint epochs);
 

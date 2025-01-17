@@ -31,7 +31,7 @@ const char *cml_activation_name(const cml_activation *const activation)
 }
 
 static cml_matrix *layer_bias(cml_layer *const layer);
-static void layer_compile(cml_layer *const layer, const lgint n_inputs);
+static void layer_compile(cml_layer *const layer, const lgint n_inputs, cml_prng *const prng);
 static cml_matrix *layer_eval(cml_layer *const layer, cml_matrix *const x);
 static void layer_free(cml_layer **layer);
 static cml_matrix *layer_gradient(cml_layer *const layer, cml_matrix *const x);
@@ -66,15 +66,7 @@ cml_matrix *layer_bias(cml_layer *const self)
     return layer->bias;
 }
 
-static fdouble random_sign_number(const int max)
-{
-    const fdouble u = (fdouble)rand() / RAND_MAX;
-    int sign = (u > 0.5) ? 1 : -1;
-
-    return sign * (rand() % max);
-}
-
-void layer_compile(cml_layer *const self, const lgint n_inputs)
+void layer_compile(cml_layer *const self, const lgint n_inputs, cml_prng *const prng)
 {
     if (self == NULL)
         return;
@@ -82,15 +74,22 @@ void layer_compile(cml_layer *const self, const lgint n_inputs)
     layer->weight = cml_matrix_alloc(n_inputs, self->units);
     layer->bias = cml_matrix_alloc(self->units, 1);
 
-    const lgint max = 10;
+    const fdouble mu = 0.;
+    const fdouble sigma = 0.1;
 
     for (lgint j = 0; j < layer->weight->n; j++)
     {
         for (lgint i = 0; i < layer->weight->m; i++)
         {
-            layer->weight->set(&layer->weight, i, j, random_sign_number(max));
+            fdouble value = 0.;
+            if (prng != NULL)
+                value = prng->normal(prng, mu, sigma);
+            layer->weight->set(&layer->weight, i, j, value);
         }
-        layer->bias->set(&layer->bias, j, 0, random_sign_number(max));
+        fdouble value = 0.;
+        if (prng != NULL)
+            value = prng->normal(prng, mu, sigma);
+        layer->bias->set(&layer->bias, j, 0, value);
     }
 }
 

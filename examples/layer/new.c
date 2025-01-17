@@ -1,17 +1,17 @@
 #include "cml_layer.h"
 #include "../matrix/matrix_header.h"
+#include "cml_prng.h"
 
 #include <stdlib.h>
-#include <time.h>
 
 int main(void)
 {
-    srand(time(NULL));
+    cml_prng *prng = cml_prng_init(NULL);
 
     const lgint units = 4;
     const lgint n_inputs = 3;
     cml_layer *layer = cml_layer_create(units, LINEAR);
-    layer->compile(layer, n_inputs);
+    layer->compile(layer, n_inputs, prng);
     layer->print(layer);
 
     cml_matrix *x = cml_matrix_alloc(5, n_inputs);
@@ -26,7 +26,8 @@ int main(void)
     }
 
     x->free(&x);
-
     layer->free(&layer);
+    prng->free(&prng);
+
     return EXIT_SUCCESS;
 }
