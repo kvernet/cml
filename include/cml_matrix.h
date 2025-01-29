@@ -28,9 +28,13 @@ extern "C"
 
     typedef void cml_matrix_lu(cml_matrix *const a, cml_matrix **p, cml_matrix **l, cml_matrix **u);
 
+    typedef cml_matrix *cml_matrix_normalize(cml_matrix *const a);
+
     typedef void cml_matrix_print(cml_matrix *const a);
 
     typedef void cml_matrix_set(cml_matrix **a, const lgint i, const lgint j, const fdouble value);
+
+    typedef void cml_matrix_softmax(cml_matrix **a);
 
     typedef fdouble cml_matrix_trace(cml_matrix *const a);
 
@@ -48,23 +52,27 @@ extern "C"
         cml_matrix_hadamard *hadamard;
         cml_matrix_inv *inv;
         cml_matrix_lu *lu;
+        cml_matrix_normalize *normalize;
         cml_matrix_print *print;
         cml_matrix_set *set;
+        cml_matrix_softmax *softmax;
         cml_matrix_trace *trace;
         cml_matrix_transpose *transpose;
     };
 
     cml_matrix *cml_matrix_alloc(const lgint m, const lgint n);
 
+    cml_matrix *cml_matrix_confusion(cml_matrix *const yhat, cml_matrix *const y);
+
     cml_matrix *cml_matrix_dif(cml_matrix *const a, cml_matrix *const b);
 
     cml_matrix *cml_matrix_eye(const lgint n);
 
+    cml_matrix *cml_matrix_prod(cml_matrix *const a, cml_matrix *const b);
+
     cml_matrix *cml_matrix_solve(cml_matrix *const a, cml_matrix *const b);
 
     cml_matrix *cml_matrix_sum(cml_matrix *const a, cml_matrix *const b);
-
-    cml_matrix *cml_matrix_prod(cml_matrix *const a, cml_matrix *const b);
 
     cml_matrix *cml_matrix_zeros(const lgint m, const lgint n);
 

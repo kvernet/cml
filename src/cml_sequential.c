@@ -8,6 +8,168 @@
 
 #define CML_EPSILON 1E-06
 
+static fdouble matrix_sum(cml_matrix *const a)
+{
+    if (a == NULL)
+        return 0;
+
+    fdouble s = 0;
+    for (lgint i = 0; i < a->m; i++)
+    {
+        for (lgint j = 0; j < a->n; j++)
+        {
+            s += a->get(a, i, j);
+        }
+    }
+    return s;
+}
+
+void cml_class_metrics(cml_matrix **prec, cml_matrix **accur, cml_matrix **f1_score, cml_matrix *const yhat, cml_matrix *const y)
+{
+    cml_matrix *conf = cml_matrix_confusion(yhat, y);
+    if (conf == NULL)
+        return;
+
+    fdouble total = matrix_sum(conf);
+
+    *prec = cml_matrix_alloc(conf->m, conf->n);
+    *accur = cml_matrix_alloc(conf->m, conf->n);
+    *f1_score = cml_matrix_alloc(conf->m, conf->n);
+
+    for (lgint i = 0; i < conf->m; i++)
+    {
+        const fdouble tp = conf->get(conf, i, i);
+        for (lgint j = 0; j < conf->n; j++)
+        {
+            fdouble fn = 0, fp = 0;
+            for (lgint k = 0; k < conf->n; k++)
+            {
+                fn += conf->get(conf, i, k);
+                fp += conf->get(conf, k, i);
+            }
+            fn -= tp;
+            fp -= tp;
+            fdouble tn = total - (tp + fn + fp);
+            fdouble p = 0;
+            if (tp + fp != 0)
+                p = tp / (tp + fp);
+
+            fdouble a = 0;
+            if (total != 0)
+                a = (tp + tn) / total;
+
+            fdouble rec = 0;
+            if (tp + fn != 0)
+                rec = tp / (tp + fn);
+
+            fdouble score = 0;
+            if (p + rec != 0)
+                score = 2 * p * rec / (p + rec);
+
+            (*prec)->set(prec, i, j, p);
+            (*accur)->set(accur, i, j, a);
+            (*f1_score)->set(f1_score, i, j, score);
+        }
+    }
+    conf->free(&conf);
+}
+
+static fdouble cml_huber_loss(const fdouble yhat_i, const fdouble y_i, const fdouble threshold)
+{
+    const fdouble delta = yhat_i - y_i;
+    return (fabs(delta) <= threshold) ? 0.5 * delta * delta : threshold * (fabs(delta) - 0.5 * threshold);
+}
+
+// comparison function for qsort (necessary for sorting doubles)
+static int cml_compare(const void *a, const void *b)
+{
+    double val_a = *((double *)a);
+    double val_b = *((double *)b);
+    return (val_a > val_b) - (val_a < val_b); // Return -1, 0, or 1
+}
+
+static fdouble cml_median_abs_error(cml_matrix *const yhat, cml_matrix *const y)
+{
+    const lgint size = yhat->m * yhat->n;
+    fdouble med[size];
+    for (lgint i = 0; i < yhat->m; i++)
+    {
+        for (lgint j = 0; j < yhat->n; j++)
+        {
+            med[i * yhat->n + j] = fabs(yhat->get(yhat, i, j) - y->get(y, i, j));
+        }
+    }
+    // sorting the array using qsort
+    qsort(med, size, sizeof(*med), cml_compare);
+
+    return (size % 2 == 0) ? 0.5 * (med[size / 2 - 1] + med[size / 2]) : med[size / 2];
+}
+
+void cml_reg_metrics(fdouble *mae, fdouble *mse, fdouble *rmse,
+                     fdouble *rsquared, fdouble *arsquared, fdouble *mape,
+                     fdouble *smape, fdouble *hloss, fdouble *evars, fdouble *medae,
+                     cml_matrix *const yhat, cml_matrix *const y,
+                     const lgint k, const fdouble threshold)
+{
+    *mae = *mse = *rmse = *rsquared = *arsquared = 0;
+    *mape = *smape = *hloss = *evars = *medae = 0;
+    if (yhat->m != y->m || yhat->n != y->n)
+    {
+        fprintf(stderr, "Error (cml_reg_metrics): the matrices should be of same dimension.\n");
+        return;
+    }
+    const lgint N = yhat->m;
+    // compute the mean of the actual(true) values
+    fdouble y_mean = 0., y_mean2 = 0., y_delta_mean = 0., y_delta_mean2 = 0.;
+    for (lgint i = 0; i < yhat->m; i++)
+    {
+        for (lgint j = 0; j < yhat->n; j++)
+        {
+            const fdouble yhat_ij = yhat->get(yhat, i, j);
+            const fdouble y_ij = y->get(y, i, j);
+            const fdouble delta = yhat_ij - y_ij;
+            y_mean += y_ij;
+            y_mean2 += y_ij * y_ij;
+            y_delta_mean += delta;
+            y_delta_mean2 += delta * delta;
+        }
+    }
+    y_mean /= N;
+    y_mean2 /= N;
+    y_delta_mean /= N;
+    y_delta_mean2 /= N;
+    const fdouble y_var = y_mean2 - y_mean * y_mean;
+    const fdouble mean_delta_var = y_delta_mean2 - y_delta_mean * y_delta_mean;
+
+    fdouble sum_delta_mean = 0;
+    for (lgint i = 0; i < yhat->m; i++)
+    {
+        for (lgint j = 0; j < yhat->n; j++)
+        {
+            const fdouble yhat_ij = yhat->get(yhat, i, j);
+            const fdouble y_ij = y->get(y, i, j);
+            const fdouble delta = yhat_ij - y_ij;
+            *mae += fabs(delta);
+            *mse += delta * delta;
+            sum_delta_mean += (y_ij - y_mean) * (y_ij - y_mean);
+            *mape += fabs(delta / y_ij);
+            *smape += 2 * fabs(delta) / (fabs(y_ij) + fabs(yhat_ij));
+            *hloss += cml_huber_loss(yhat_ij, y_ij, threshold);
+        }
+    }
+
+    *mae /= N;
+    *mse /= N;
+    *rmse = sqrt(*mse);
+    sum_delta_mean /= N;
+    *rsquared = 1 - *mse / sum_delta_mean;
+    *arsquared = 1 - (1 - *rsquared) * (N - 1) / (N - k - 1);
+    *mape = *mape * 100 / N;
+    *smape = *smape * 100 / N;
+    *evars = 1 - mean_delta_var / y_var;
+    *medae = cml_median_abs_error(yhat, y);
+}
+
 struct sequential
 {
     /* Public interface */
@@ -18,12 +180,12 @@ struct sequential
 };
 
 static void sequential_compile(cml_sequential *const model, cml_prng *const prng);
-static void sequential_fit(cml_sequential *const model, cml_matrix *const x, cml_matrix *const y, const fdouble alpha, const lgint epochs);
+static void sequential_fit(cml_sequential *const model, cml_matrix *const x, cml_matrix *const y, fdouble (*learning_rate)(fdouble alpha), const fdouble alpha, const lgint epochs);
 static void sequential_free(cml_sequential **model);
 static cml_matrix *sequential_predict(cml_sequential *const model, cml_matrix *const x);
 static void sequential_summary(cml_sequential *const model);
 
-cml_sequential *cml_sequential_create(cml_layer *layers[], const lgint n_layers, const lgint n_inputs)
+cml_sequential *cml_sequential_create(cml_layer *layers[], const lgint n_layers, const lgint n_inputs, const cml_loss loss)
 {
     struct sequential *model = NULL;
     const size_t size = sizeof(*model);
@@ -31,6 +193,7 @@ cml_sequential *cml_sequential_create(cml_layer *layers[], const lgint n_layers,
     model->pub.layers = layers;
     *(lgint *)(&model->pub.n_layers) = n_layers;
     *(lgint *)(&model->pub.n_inputs) = n_inputs;
+    *(cml_loss *)(&model->pub.loss) = loss;
 
     model->pub.compile = &sequential_compile;
     model->pub.fit = &sequential_fit;
@@ -193,7 +356,33 @@ static fdouble sequential_mse(cml_sequential *const model, cml_matrix *const x, 
     return mse;
 }
 
-void sequential_fit(cml_sequential *const model, cml_matrix *const x, cml_matrix *const y, const fdouble alpha, const lgint epochs)
+static fdouble sequential_softmax_entropy(cml_sequential *const model, cml_matrix *const x, cml_matrix *const y)
+{
+    if (model == NULL)
+        return DBL_MAX;
+    cml_matrix *prob = model->predict(model, x);
+    if (prob == NULL)
+        return DBL_MAX;
+    cml_matrix *lprob = cml_matrix_alloc(prob->m, prob->n);
+    for (lgint i = 0; i < lprob->m; i++)
+    {
+        for (lgint j = 0; j < lprob->n; j++)
+        {
+            lprob->set(&lprob, i, j, log(prob->get(prob, i, j)));
+        }
+    }
+    prob->free(&prob);
+    cml_matrix *ytranspose = NULL;
+    y->transpose(y, &ytranspose);
+    cml_matrix *prod = cml_matrix_prod(ytranspose, lprob);
+    ytranspose->free(&ytranspose);
+    lprob->free(&lprob);
+    const fdouble trace = prod->trace(prod);
+    prod->free(&prod);
+    return -trace / x->m;
+}
+
+void sequential_fit(cml_sequential *const model, cml_matrix *const x, cml_matrix *const y, fdouble (*learning_rate)(fdouble alpha), const fdouble alpha, const lgint epochs)
 {
     if (model == NULL || x == NULL || y == NULL)
         return;
@@ -214,6 +403,7 @@ void sequential_fit(cml_sequential *const model, cml_matrix *const x, cml_matrix
         return;
     }
 
+    fdouble rate = alpha;
     for (lgint e = 0; e < epochs; e++)
     {
         // feed forward
@@ -221,15 +411,24 @@ void sequential_fit(cml_sequential *const model, cml_matrix *const x, cml_matrix
         sequential_forward(model, x, inputs);
 
         // backward
-        sequential_backward(model, x, inputs, y, alpha);
+        rate = learning_rate(rate);
+        sequential_backward(model, x, inputs, y, rate);
 
         for (lgint n = 0; n < model->n_layers; n++)
         {
             inputs[n]->free(&inputs[n]);
         }
 
-        const fdouble mse = sequential_mse(model, x, y);
-        printf("epoch\t%ld/%ld\tmse %lg\n", e + 1, epochs, mse);
+        fdouble loss = 0;
+        if (model->loss == MULTI_CLASS_CROSS_ENTROPY)
+        {
+            loss = sequential_softmax_entropy(model, x, y);
+        }
+        else
+        {
+            loss = sequential_mse(model, x, y);
+        }
+        printf("epoch\t%ld/%ld\tlearning rate\t%5.7E\tloss %5.7E\n", e + 1, epochs, rate, loss);
     }
 }
 

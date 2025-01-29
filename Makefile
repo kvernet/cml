@@ -3,22 +3,26 @@ CFLAGS   = -O2 -fPIC -Wall -Werror -Wextra
 LDFLAGS  = -shared
 
 LIB_NAME = cml
-LIB_SRCS = src/cml_layer.c src/cml_matrix.c src/cml_prng.c src/cml_sequential.c
+LIB_SRCS = src/cml_activation.c src/cml_algorithm.c src/cml_data.c src/cml_layer.c src/cml_loss.c src/cml_matrix.c src/cml_optimizer.c src/cml_prng.c src/cml_sequential.c
 LIB_OBJS = $(LIB_SRCS:.c=.o)
 
 all: lib$(LIB_NAME).so
 
-LAYER_EXAMPLES  = new
+DATA_EXAMPLES = shuffle
+LAYER_EXAMPLES  = leaky-relu linear new relu sigmoid softmax tanh
 MATRIX_EXAMPLES = alloc det eye inv lu prod solve sum trace transpose zeros
 PRNG_EXAMPLES = init normal uniform
-SEQUENTIAL_EXAMPLES = and create iris or xor
-EXAMPLE_SRCS = $(LAYER_EXAMPLES) $(MATRIX_EXAMPLES) $(PRNG_EXAMPLES) $(SEQUENTIAL_EXAMPLES)
+SEQUENTIAL_EXAMPLES = and create heart-disease iris lattice-physics linreg or polyreg wdbc wine-quality xor
+EXAMPLE_SRCS = $(DATA_EXAMPLES) $(LAYER_EXAMPLES) $(MATRIX_EXAMPLES) $(PRNG_EXAMPLES) $(SEQUENTIAL_EXAMPLES)
 
 examples: $(EXAMPLE_SRCS)
 
 define build_example
-$(COMPILER) $(CFLAGS) -Iinclude examples/$1/$2.c -o bin/examples/$1-$2 -Llib -lcml
+$(COMPILER) $(CFLAGS) -Iinclude examples/$1/$2.c -o bin/examples/$1-$2 -Llib -lcml -lm
 endef
+
+$(DATA_EXAMPLES): lib$(LIB_NAME).so | bin_examples
+	$(call build_example,data,$@)
 
 $(LAYER_EXAMPLES): lib$(LIB_NAME).so | bin_examples
 	$(call build_example,layer,$@)

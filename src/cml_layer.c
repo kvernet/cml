@@ -15,21 +15,6 @@ struct layer
     cml_matrix *bias;
 };
 
-const char *cml_activation_name(const cml_activation *const activation)
-{
-    switch (*activation)
-    {
-    case LINEAR:
-        return "linear";
-    case RELU:
-        return "relu";
-    case SIGMOID:
-        return "sigmoid";
-    default:
-        return NULL;
-    }
-}
-
 static cml_matrix *layer_bias(cml_layer *const layer);
 static void layer_compile(cml_layer *const layer, const lgint n_inputs, cml_prng *const prng);
 static cml_matrix *layer_eval(cml_layer *const layer, cml_matrix *const x);
@@ -93,46 +78,6 @@ void layer_compile(cml_layer *const self, const lgint n_inputs, cml_prng *const 
     }
 }
 
-static fdouble eval_linear(const fdouble x)
-{
-    return x;
-}
-static fdouble eval_linear_grad(const fdouble)
-{
-    return 1.;
-}
-
-static fdouble eval_relu(const fdouble x)
-{
-    return (x > 0) ? x : 0;
-}
-static fdouble eval_relu_grad(const fdouble x)
-{
-    return (x > 0) ? 1 : 0;
-}
-
-static fdouble eval_sigmoid(const fdouble x)
-{
-    return 1. / (1. + exp(-x));
-}
-static fdouble eval_sigmoid_grad(const fdouble x)
-{
-    return eval_sigmoid(x) * (1 - eval_sigmoid(x));
-}
-
-static fdouble eval_tanh(const fdouble x)
-{
-    const fdouble e1 = exp(x);
-    const fdouble e2 = exp(-x);
-
-    return (e1 - e2) / (e1 + e2);
-}
-static fdouble eval_tanh_grad(const fdouble x)
-{
-    const fdouble y = eval_tanh(x);
-    return 1 - y * y;
-}
-
 static fdouble layer_compute(cml_layer *const layer, const fdouble x)
 {
     switch (layer->activation)
@@ -141,10 +86,14 @@ static fdouble layer_compute(cml_layer *const layer, const fdouble x)
         return eval_linear(x);
     case RELU:
         return eval_relu(x);
+    case LEAKY_RELU:
+        return eval_leaky_relu(x);
     case SIGMOID:
         return eval_sigmoid(x);
     case TANH:
         return eval_tanh(x);
+    case SOFTMAX:
+        return exp(x);
     default:
         return DBL_MAX;
     }
@@ -158,10 +107,14 @@ static fdouble layer_compute_grad(cml_layer *const layer, const fdouble x)
         return eval_linear_grad(x);
     case RELU:
         return eval_relu_grad(x);
+    case LEAKY_RELU:
+        return eval_leaky_relu_grad(x);
     case SIGMOID:
         return eval_sigmoid_grad(x);
     case TANH:
         return eval_tanh_grad(x);
+    case SOFTMAX:
+        return exp(x);
     default:
         return DBL_MAX;
     }
@@ -189,9 +142,11 @@ cml_matrix *layer_eval(cml_layer *const self, cml_matrix *const x)
         fprintf(stderr, "error (layer_eval): the matrices (%ld, %ld) and (%ld, %ld) are not product compatible in X*w.\n", x->m, x->n, layer->weight->m, layer->weight->n);
         return NULL;
     }
+
     cml_matrix *z = cml_matrix_alloc(x->m, layer->weight->n);
     for (lgint i = 0; i < z->m; i++)
     {
+        fdouble sprob = 0;
         for (lgint j = 0; j < z->n; j++)
         {
             fdouble s = 0.;
@@ -199,8 +154,18 @@ cml_matrix *layer_eval(cml_layer *const self, cml_matrix *const x)
             {
                 s += x->get(x, i, k) * layer->weight->get(layer->weight, k, j);
             }
-            const fdouble x = s + layer->bias->get(layer->bias, j, 0);
-            z->set(&z, i, j, layer_compute(self, x));
+            const fdouble xij = s + layer->bias->get(layer->bias, j, 0);
+            const fdouble value = layer_compute(self, xij);
+            z->set(&z, i, j, value);
+            sprob += value;
+        }
+        if (self->activation == SOFTMAX)
+        {
+            for (lgint j = 0; j < z->n; j++)
+            {
+                const fdouble value = z->get(z, i, j);
+                z->set(&z, i, j, value / sprob);
+            }
         }
     }
     return z;

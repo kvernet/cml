@@ -24,8 +24,10 @@ static fdouble matrix_get(cml_matrix *const a, const lgint i, const lgint j);
 static cml_matrix *matrix_hadamard(cml_matrix *const a, cml_matrix *const b);
 static cml_matrix *matrix_inv(cml_matrix *const a);
 static void matrix_lu(cml_matrix *const a, cml_matrix **p, cml_matrix **l, cml_matrix **u);
+static cml_matrix *matrix_normalize(cml_matrix *const a);
 static void matrix_print(cml_matrix *const a);
 static void matrix_set(cml_matrix **a, const lgint i, const lgint j, const fdouble value);
+static void matrix_softmax(cml_matrix **a);
 static fdouble matrix_trace(cml_matrix *const a);
 static void matrix_transpose(cml_matrix *const a, cml_matrix **at);
 
@@ -44,8 +46,10 @@ cml_matrix *matrix_create(const lgint m, const lgint n, void *(*alloc)(size_t))
     mat->pub.hadamard = &matrix_hadamard;
     mat->pub.inv = &matrix_inv;
     mat->pub.lu = &matrix_lu;
+    mat->pub.normalize = &matrix_normalize;
     mat->pub.print = &matrix_print;
     mat->pub.set = &matrix_set;
+    mat->pub.softmax = &matrix_softmax;
     mat->pub.trace = &matrix_trace;
     mat->pub.transpose = &matrix_transpose;
 
@@ -55,6 +59,45 @@ cml_matrix *matrix_create(const lgint m, const lgint n, void *(*alloc)(size_t))
 cml_matrix *cml_matrix_alloc(const lgint m, const lgint n)
 {
     return matrix_create(m, n, &malloc);
+}
+
+cml_matrix *cml_matrix_confusion(cml_matrix *const yhat, cml_matrix *const y)
+{
+    if (yhat->m != y->m || yhat->n != y->n)
+    {
+        fprintf(stderr, "Error (cml_matrix_confusion): the matrices are not of same dimension\n");
+        return NULL;
+    }
+
+    cml_matrix *report = cml_matrix_zeros(y->n, y->n);
+    for (lgint i = 0; i < y->m; i++)
+    {
+        // get actual/target class of the ith row
+        lgint target_class = 0;
+        for (lgint j = 0; j < y->n; j++)
+        {
+            if (y->get(y, i, j) == 1)
+            {
+                target_class = j;
+                break;
+            }
+        }
+
+        // get predicted class of the ith row
+        lgint predicted_class = 0;
+        for (lgint j = 0; j < yhat->n; j++)
+        {
+            if (yhat->get(yhat, i, j) == 1)
+            {
+                predicted_class = j;
+                break;
+            }
+        }
+        const lgint k = (lgint)report->get(report, target_class, predicted_class);
+        report->set(&report, target_class, predicted_class, k + 1);
+    }
+
+    return report;
 }
 
 cml_matrix *cml_matrix_dif(cml_matrix *const a, cml_matrix *const b)
@@ -93,6 +136,39 @@ cml_matrix *cml_matrix_eye(const lgint n)
         a->set(&a, i, i, 1.);
     }
     return a;
+}
+
+cml_matrix *cml_matrix_prod(cml_matrix *const a, cml_matrix *const b)
+{
+    if (a == NULL)
+    {
+        fprintf(stderr, "error (cml_matrix_prod): the matrix A is null in A*B.\n");
+        return NULL;
+    }
+    if (b == NULL)
+    {
+        fprintf(stderr, "error (cml_matrix_prod): the matrix B is null in A*B.\n");
+        return NULL;
+    }
+    if (a->n != b->m)
+    {
+        fprintf(stderr, "error (cml_matrix_prod): the matrices should be product compatible in A*B.\n");
+        return NULL;
+    }
+    cml_matrix *p = cml_matrix_alloc(a->m, b->n);
+    for (lgint i = 0; i < p->m; i++)
+    {
+        for (lgint j = 0; j < p->n; j++)
+        {
+            fdouble s = 0.;
+            for (lgint k = 0; k < a->n; k++)
+            {
+                s += a->get(a, i, k) * b->get(b, k, j);
+            }
+            p->set(&p, i, j, s);
+        }
+    }
+    return p;
 }
 
 cml_matrix *cml_matrix_solve(cml_matrix *const a, cml_matrix *const b)
@@ -144,39 +220,6 @@ cml_matrix *cml_matrix_sum(cml_matrix *const a, cml_matrix *const b)
         }
     }
     return s;
-}
-
-cml_matrix *cml_matrix_prod(cml_matrix *const a, cml_matrix *const b)
-{
-    if (a == NULL)
-    {
-        fprintf(stderr, "error (cml_matrix_prod): the matrix A is null in A*B.\n");
-        return NULL;
-    }
-    if (b == NULL)
-    {
-        fprintf(stderr, "error (cml_matrix_prod): the matrix B is null in A*B.\n");
-        return NULL;
-    }
-    if (a->n != b->m)
-    {
-        fprintf(stderr, "error (cml_matrix_prod): the matrices should be product compatible in A*B.\n");
-        return NULL;
-    }
-    cml_matrix *p = cml_matrix_alloc(a->m, b->n);
-    for (lgint i = 0; i < p->m; i++)
-    {
-        for (lgint j = 0; j < p->n; j++)
-        {
-            fdouble s = 0.;
-            for (lgint k = 0; k < a->n; k++)
-            {
-                s += a->get(a, i, k) * b->get(b, k, j);
-            }
-            p->set(&p, i, j, s);
-        }
-    }
-    return p;
 }
 
 static void *matrix_alloc(size_t size)
@@ -478,6 +521,38 @@ void matrix_lu(cml_matrix *const a, cml_matrix **p, cml_matrix **l, cml_matrix *
     cml_lu(a, p, l, u);
 }
 
+cml_matrix *matrix_normalize(cml_matrix *const a)
+{
+    if (a == NULL)
+        return NULL;
+
+    cml_matrix *a_norm = cml_matrix_alloc(a->m, a->n);
+    for (lgint j = 0; j < a->n; j++)
+    {
+        // get the max of jth column
+        lgint i_max = 0;
+        fdouble fmax = DBL_MIN;
+        for (lgint i = 0; i < a->m; i++)
+        {
+            if (fmax < a->get(a, i, j))
+            {
+                fmax = a->get(a, i, j);
+                i_max = i;
+            }
+        }
+        // divide by the max
+        const fdouble coef = a->get(a, i_max, j);
+        if (coef != 0)
+        {
+            for (lgint i = 0; i < a_norm->m; i++)
+            {
+                a_norm->set(&a_norm, i, j, a->get(a, i, j) / coef);
+            }
+        }
+    }
+    return a_norm;
+}
+
 void matrix_print(cml_matrix *const a)
 {
     if (a == NULL)
@@ -503,8 +578,36 @@ void matrix_set(cml_matrix **a, const lgint i, const lgint j, const fdouble valu
 {
     if (*a == NULL)
         return;
+    if (i >= (*a)->m || j >= (*a)->n)
+    {
+        fprintf(stderr, "Error (matrix_set): the index (%ld, %ld) is outside of the matrix dimension (%ld, %ld)\n", i, j, (*a)->m, (*a)->n);
+        return;
+    }
     struct matrix *mat = (struct matrix *)(*a);
     mat->data[i * (*a)->n + j] = value;
+}
+
+void matrix_softmax(cml_matrix **a)
+{
+    for (lgint i = 0; i < (*a)->m; i++)
+    {
+        lgint index = 0;
+        fdouble fmax = DBL_MIN;
+        for (lgint j = 0; j < (*a)->n; j++)
+        {
+            const fdouble aij = (*a)->get(*a, i, j);
+            if (fmax < aij)
+            {
+                fmax = aij;
+                index = j;
+            }
+        }
+
+        for (lgint j = 0; j < (*a)->n; j++)
+        {
+            (*a)->set(a, i, j, index == j);
+        }
+    }
 }
 
 fdouble matrix_trace(cml_matrix *const a)

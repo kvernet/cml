@@ -1,6 +1,7 @@
 #ifndef cml_layer_h
 #define cml_layer_h
 
+#include "cml_activation.h"
 #include "cml_matrix.h"
 #include "cml_prng.h"
 
@@ -8,16 +9,6 @@
 extern "C"
 {
 #endif
-
-    typedef enum cml_activation
-    {
-        LINEAR = 0,
-        RELU = 1,
-        SIGMOID = 2,
-        TANH = 3
-    } cml_activation;
-
-    const char *cml_activation_name(const cml_activation *const activation);
 
     typedef struct cml_layer cml_layer;
 

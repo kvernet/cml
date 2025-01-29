@@ -1,99 +1,88 @@
+#include "cml_data.h"
 #include "cml_sequential.h"
 #include "cml_prng.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-void get_iris_data(cml_matrix **x, cml_matrix **y, const char *path);
+static fdouble learning_rate(const fdouble alpha)
+{
+    return 1.00003 * alpha;
+}
 
 int main(void)
 {
     cml_prng *prng = cml_prng_init(NULL);
 
     cml_matrix *x = cml_matrix_alloc(150, 4);
-    cml_matrix *y = cml_matrix_alloc(150, 1);
-    const char *path = "data/iris.data";
-    get_iris_data(&x, &y, path);
-    // x->print(x);
-    // y->print(y);
+    cml_matrix *y = cml_matrix_alloc(150, 3);
+    const char *file_path = "data/iris.data";
+    const char *delimiter = ",";
+    bool has_header = true;
+    cml_data_read(&x, &y, file_path, delimiter, has_header);
+
+    // split data into train, validation & test
+    cml_matrix *train_data_x = NULL, *train_data_y = NULL;
+    cml_matrix *val_data_x = NULL, *val_data_y = NULL;
+    cml_matrix *test_data_x = NULL, *test_data_y = NULL;
+    const fdouble val_percentage = 0.2;
+    const fdouble test_percentage = 0.15;
+    bool shuffle = true;
+    cml_data_split(
+        &train_data_x, &train_data_y,
+        &val_data_x, &val_data_y,
+        &test_data_x, &test_data_y,
+        x, y,
+        val_percentage, test_percentage, shuffle);
 
     cml_layer *layers[] = {
-        cml_layer_create(56, LINEAR),
-        cml_layer_create(28, LINEAR),
-        cml_layer_create(1, RELU)};
+        cml_layer_create(32, LEAKY_RELU),
+        cml_layer_create(y->n, SOFTMAX)};
     const lgint n_layers = sizeof(layers) / sizeof(layers[0]);
-    cml_sequential *model = cml_sequential_create(layers, n_layers, x->n);
+    cml_sequential *model = cml_sequential_create(layers, n_layers, train_data_x->n, MULTI_CLASS_CROSS_ENTROPY);
     model->compile(model, prng);
     model->summary(model);
 
     const fdouble alpha = 0.01;
-    const lgint epochs = 10000;
-    model->fit(model, x, y, alpha, epochs);
+    const lgint epochs = 80000;
+    model->fit(model, train_data_x, train_data_y, &learning_rate, alpha, epochs);
 
-    cml_matrix *x_test = cml_matrix_alloc(1, 4);
-    x_test->set(&x_test, 0, 0, 6.2);
-    x_test->set(&x_test, 0, 1, 2.2);
-    x_test->set(&x_test, 0, 2, 4.5);
-    x_test->set(&x_test, 0, 3, 1.5);
+    test_data_y->print(test_data_y);
+    cml_matrix *yhat = model->predict(model, test_data_x);
+    if(yhat)
+    {
+        yhat->softmax(&yhat);
+        yhat->print(yhat);
 
-    cml_matrix *yhat = model->predict(model, x_test);
-    yhat->print(yhat);
-    x_test->free(&x_test);
+        cml_matrix *conf = cml_matrix_confusion(yhat, test_data_y);
+        conf->print(conf);
+        conf->free(&conf);
 
-    printf("seed = %d\n", prng->seed);
+        cml_matrix *prec = NULL, *accur = NULL, *f1_score = NULL;
+        cml_class_metrics(&prec, &accur, &f1_score, yhat, test_data_y);
+        prec->print(prec);
+        accur->print(accur);
+        f1_score->print(f1_score);
+        prec->free(&prec);
+        accur->free(&accur);
+        f1_score->free(&f1_score);
 
+        yhat->free(&yhat);
+    }
+
+    train_data_x->free(&train_data_x);
+    train_data_y->free(&train_data_y);
+    val_data_x->free(&val_data_x);
+    val_data_y->free(&val_data_y);
+    test_data_x->free(&test_data_x);
+    test_data_y->free(&test_data_y);
     x->free(&x);
     y->free(&y);
+
     model->free(&model);
-    yhat->free(&yhat);
     prng->free(&prng);
 
     return EXIT_SUCCESS;
-}
-
-void get_iris_data(cml_matrix **x, cml_matrix **y, const char *path)
-{
-    FILE *stream = fopen(path, "r");
-    if (stream == NULL)
-    {
-        fprintf(stderr, "Error (get_iris_data): file %s does not exist\n", path);
-        return;
-    }
-    char dummy[255];
-
-    fdouble sepal_length, sepal_width, petal_length, petal_width;
-    char name[100];
-
-    lgint i = 0;
-    while (fgets(dummy, 255, stream))
-    {
-        if (5 == sscanf(dummy, "%lg,%lg,%lg,%lg,%s\n", &sepal_length, &sepal_width, &petal_length, &petal_width, name))
-        {
-            (*x)->set(x, i, 0, sepal_length);
-            (*x)->set(x, i, 1, sepal_width);
-            (*x)->set(x, i, 2, petal_length);
-            (*x)->set(x, i, 3, petal_width);
-
-            if (strcmp(name, "Iris-setosa") == 0)
-            {
-                (*y)->set(y, i, 0, 1);
-            }
-            else if (strcmp(name, "Iris-versicolor") == 0)
-            {
-                (*y)->set(y, i, 0, 2);
-            }
-            else if (strcmp(name, "Iris-virginica") == 0)
-            {
-                (*y)->set(y, i, 0, 3);
-            }
-            else
-            {
-                (*y)->set(y, i, 0, 0);
-            }
-
-            i++;
-        }
-    }
-    fclose(stream);
 }
